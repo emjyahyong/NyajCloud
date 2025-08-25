@@ -1,65 +1,74 @@
 package com.nyajcloud.controller;
 
 import com.nyajcloud.model.User;
+import com.nyajcloud.repository.UserRepository;
 import com.nyajcloud.service.SshProvisioningService;
-import com.nyajcloud.service.UserService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
 
 @RestController
 @RequestMapping("/api/utilisateurs")
 public class UserController {
 
-    private final UserService userService;
+    private final UserRepository userRepository;
     private final SshProvisioningService sshService;
 
-    public UserController(UserService userService, SshProvisioningService sshService) {
-        this.userService = userService;
+    public UserController(UserRepository userRepository, SshProvisioningService sshService) {
+        this.userRepository = userRepository;
         this.sshService = sshService;
     }
 
-    // Crée un utilisateur dans la base et son répertoire dédié sur le serveur
+    // -------------------------------
+    // Gestion des utilisateurs (DB uniquement)
+    // -------------------------------
+
     @PostMapping
     public ResponseEntity<User> register(@RequestBody User user) {
-        User created = userService.createUser(user);
-
-        // Créer le répertoire Linux pour l'utilisateur
+        User created = userRepository.save(user);
+        // Créer un répertoire Linux dédié pour l'utilisateur
         sshService.createClientDirectory(created.getId().toString());
-
         return ResponseEntity.ok(created);
     }
 
-    // Supprime le répertoire Linux de l'utilisateur
-    @DeleteMapping("/{userId}/directory")
-    public ResponseEntity<String> deleteUserDirectory(@PathVariable Long userId) {
-        sshService.deleteClientDirectory(userId.toString());
-        return ResponseEntity.ok("Répertoire supprimé pour l'utilisateur " + userId);
+    @GetMapping
+    public ResponseEntity<List<User>> listUsers() {
+        return ResponseEntity.ok(userRepository.findAll());
     }
 
-    // Lister les fichiers ou paquets de l'utilisateur
-    @GetMapping("/{userId}/packages")
-    public ResponseEntity<?> listUserPackages(@PathVariable Long userId) {
-        // Dans ce cas, c'est global puisque tous passent par le même compte Linux
+    @DeleteMapping("/{userId}")
+    public ResponseEntity<String> deleteUser(@PathVariable Long userId) {
+        userRepository.deleteById(userId);
+        sshService.deleteClientDirectory(userId.toString());
+        return ResponseEntity.ok("Utilisateur et répertoire supprimés : " + userId);
+    }
+
+    // -------------------------------
+    // Gestion des paquets (global Linux)
+    // -------------------------------
+
+    @GetMapping("/packages")
+    public ResponseEntity<?> listInstalledPackages() {
         return ResponseEntity.ok(sshService.listInstalledPackages());
     }
 
-    // Installer un paquet pour l'utilisateur
-    @PostMapping("/{userId}/packages/install")
-    public ResponseEntity<String> installPackage(@PathVariable Long userId,
-                                                 @RequestParam String packageName) {
+    @PostMapping("/packages/install")
+    public ResponseEntity<String> installPackage(@RequestParam String packageName) {
         sshService.installPackage(packageName);
         return ResponseEntity.ok("Paquet installé : " + packageName);
     }
 
-    // Supprimer un paquet pour l'utilisateur
-    @PostMapping("/{userId}/packages/remove")
-    public ResponseEntity<String> removePackage(@PathVariable Long userId,
-                                                @RequestParam String packageName) {
+    @PostMapping("/packages/remove")
+    public ResponseEntity<String> removePackage(@RequestParam String packageName) {
         sshService.removePackage(packageName);
         return ResponseEntity.ok("Paquet supprimé : " + packageName);
     }
 
+    // -------------------------------
     // Monitoring système
+    // -------------------------------
+
     @GetMapping("/system/disk")
     public ResponseEntity<String> getDiskUsage() {
         return ResponseEntity.ok(sshService.getDiskUsage());
@@ -80,7 +89,10 @@ public class UserController {
         return ResponseEntity.ok(sshService.getSystemUptime());
     }
 
-    // Gestion des services
+    // -------------------------------
+    // Gestion des services Linux
+    // -------------------------------
+
     @PostMapping("/service/{serviceName}/start")
     public ResponseEntity<String> startService(@PathVariable String serviceName) {
         sshService.startService(serviceName);
